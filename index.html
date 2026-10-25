@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="OnE8PYtIDLI3SIHlaVD7yp">
+<head data-page-node-id="nj5ddlBInchZ7Alv98TgGT">
+<meta charset="UTF-8" data-page-node-id="3SL5jPrrWfwkW2ULmCotC6">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="wPgDmckhnUhPkvgZsFvK9C">
+<title>PhysFlow · 实验数据流水线搭建器</title>
+<style>
+  :root{
+    --bg:#f3f5f9; --panel:#ffffff; --line:#dfe4ec; --text:#1e2530; --muted:#6b7686;
+    --primary:#2f6bff; --primary-soft:#e8efff;
+    --c-input:#2f6bff; --c-calc:#0fa968; --c-ai:#8b5cf6; --c-out:#f08c1a; --c-ctrl:#64748b;
+    --ok:#16a34a; --err:#dc2626; --warn:#d97706; --radius:10px;
+    font-size:14px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{font-family:"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column;}
+  button{font-family:inherit; cursor:pointer;}
+
+  /* ── 顶栏 ── */
+  #topbar{display:flex; align-items:center; gap:10px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line); flex:none; z-index:20;}
+  #topbar .logo{display:flex; align-items:center; gap:8px; font-weight:700; font-size:16px; margin-right:8px;}
+  #topbar .logo .dot{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#2f6bff,#8b5cf6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;}
+  #topbar .logo small{font-weight:400; color:var(--muted); font-size:12px;}
+  .btn{border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:8px; padding:6px 12px; font-size:13px; display:inline-flex; align-items:center; gap:5px; transition:.15s;}
+  .btn:hover{border-color:var(--primary); color:var(--primary);}
+  .btn.primary{background:var(--primary); border-color:var(--primary); color:#fff;}
+  .btn.primary:hover{filter:brightness(1.08); color:#fff;}
+  .btn.danger:hover{border-color:var(--err); color:var(--err);}
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+  #tplSelect{border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:13px; background:var(--panel); max-width:180px;}
+  .spacer{flex:1;}
+
+  /* ── 主体 ── */
+  #main{flex:1; display:flex; min-height:0;}
+  #palette{width:236px; flex:none; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:12px;}
+  #palette h3{font-size:12px; color:var(--muted); margin:14px 0 6px; font-weight:600;}
+  #palette h3:first-child{margin-top:0;}
+  .pal-item{display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; margin-bottom:6px; cursor:grab; background:var(--panel); transition:.15s; user-select:none;}
+  .pal-item:hover{border-color:var(--primary); box-shadow:0 2px 8px rgba(47,107,255,.10); transform:translateY(-1px);}
+  .pal-item .ic{font-size:16px; line-height:1.2;}
+  .pal-item b{font-size:13px; display:block;}
+  .pal-item span{font-size:11px; color:var(--muted); line-height:1.35; display:block; margin-top:2px;}
+  .pal-cat{display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; margin:14px 0 6px; color:var(--text);}
+  .pal-cat .bar{width:4px; height:12px; border-radius:2px;}
+
+  #canvasWrap{flex:1; overflow:auto; position:relative; background:var(--bg);
+    background-image:radial-gradient(circle, #d6dce6 1px, transparent 1px); background-size:22px 22px;}
+  #canvas{position:relative; width:3200px; height:2200px;}
+  #wires{position:absolute; left:0; top:0; width:3200px; height:2200px; pointer-events:none;}
+  #wires .wire{fill:none; stroke:#9aa6b8; stroke-width:2;}
+  #wires .wire.sel{stroke:var(--primary); stroke-width:2.5;}
+  #wires .wire.lit{stroke:var(--ok);}
+  #wires .wire-hit{fill:none; stroke:transparent; stroke-width:14; pointer-events:stroke; cursor:pointer;}
+  #wires .wire-temp{fill:none; stroke:var(--primary); stroke-width:2; stroke-dasharray:6 4;}
+
+  /* ── 节点卡片 ── */
+  .node{position:absolute; width:230px; background:var(--panel); border:1.5px solid var(--line); border-radius:var(--radius); box-shadow:0 2px 8px rgba(20,30,50,.07); transition:box-shadow .15s; z-index:2;}
+  .node:hover{box-shadow:0 4px 14px rgba(20,30,50,.13);}
+  .node.sel{border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft), 0 4px 14px rgba(20,30,50,.13);}
+  .node.disabled{opacity:.45;}
+  .node-head{display:flex; align-items:center; gap:6px; padding:7px 10px; border-bottom:1px solid var(--line); cursor:grab; border-radius:9px 9px 0 0;}
+  .node-head .dot{width:8px; height:8px; border-radius:50%; background:#c3cad6; flex:none;}
+  .node.st-ok .dot{background:var(--ok);} .node.st-err .dot{background:var(--err);}
+  .node.st-skip .dot{background:var(--warn);} .node.st-run .dot{background:var(--primary); animation:pulse .8s infinite;}
+  @keyframes pulse{50%{opacity:.35;}}
+  .node-head .t{font-size:13px; font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .node-head .x{border:none; background:none; color:var(--muted); font-size:14px; line-height:1; padding:2px;}
+  .node-head .x:hover{color:var(--err);}
+  .node-type{font-size:10px; color:#fff; padding:1px 7px; border-radius:999px; display:inline-block; margin:6px 10px 0;}
+  .node-body{padding:5px 10px 7px; font-size:11px; color:var(--muted); min-height:20px; max-height:96px; overflow:hidden;}
+  .node-body .kv{display:flex; justify-content:space-between; gap:6px; padding:1px 0;}
+  .node-body .kv b{color:var(--text); font-weight:500; text-align:right; word-break:break-all;}
+  .node-foot{display:flex; gap:6px; padding:6px 10px 8px; border-top:1px solid var(--line); align-items:center;}
+  .node-foot .mini{font-size:11px; padding:2px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--muted);}
+  .node-foot .mini:hover{border-color:var(--primary); color:var(--primary);}
+  .node-foot label{font-size:11px; color:var(--muted); display:flex; align-items:center; gap:3px; margin-left:auto; user-select:none;}
+  .port{position:absolute; width:12px; height:12px; border-radius:50%; background:var(--panel); border:2.5px solid #9aa6b8; top:22px; z-index:3; cursor:crosshair;}
+  .port:hover{border-color:var(--primary);}
+  .port.in{left:-7px;} .port.out{right:-7px; border-color:var(--ok);}
+
+  /* ── 检查器 ── */
+  #inspector{width:330px; flex:none; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:14px;}
+  #inspector h2{font-size:15px; display:flex; align-items:center; gap:8px; margin-bottom:4px;}
+  #inspector .desc{font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:10px;}
+  .fld{margin-bottom:10px;}
+  .fld>label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px; font-weight:500;}
+  .fld input[type=text],.fld input[type=number],.fld textarea,.fld select{width:100%; border:1px solid var(--line); border-radius:8px; padding:7px 9px; font-size:13px; font-family:inherit; background:#fff; color:var(--text);}
+  .fld textarea{resize:vertical; min-height:60px; line-height:1.5;}
+  .fld input:focus,.fld textarea:focus,.fld select:focus{outline:none; border-color:var(--primary); box-shadow:0 0 0 2px var(--primary-soft);}
+  .fld .row{display:flex; gap:6px;}
+  .fld .row input{flex:1;}
+  .fld .row input:first-child{flex:1.2;}
+  .rowbtns{display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;}
+  .expr-item{border:1px solid var(--line); border-radius:8px; padding:8px; margin-bottom:8px; background:#fafbfe;}
+  .expr-item .row{display:flex; gap:6px; align-items:center; margin-bottom:5px;}
+  .expr-item input{border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-size:12px;}
+  .expr-item .oname{width:86px;} .expr-item .eexpr{flex:1;}
+  .expr-item .del{border:none; background:none; color:var(--muted); cursor:pointer;}
+  .expr-item .del:hover{color:var(--err);}
+  .hint{font-size:11px; color:var(--muted); line-height:1.5; background:#f6f8fc; border-radius:8px; padding:7px 9px; margin-bottom:10px;}
+  .hint code{background:#e9edf5; padding:0 4px; border-radius:4px; font-size:11px;}
+  .outbox{margin-top:12px;}
+  .outbox h4{font-size:12px; color:var(--muted); margin-bottom:5px; display:flex; align-items:center; gap:6px;}
+  .outbox pre{background:#1e2530; color:#d7e3ff; font-size:11px; line-height:1.5; padding:10px; border-radius:8px; overflow:auto; max-height:340px; white-space:pre-wrap; word-break:break-all; font-family:Consolas,monospace;}
+  .outbox pre.err{background:#3b1113; color:#ffb4b4;}
+  .badge{font-size:10px; padding:1px 7px; border-radius:999px; background:var(--primary-soft); color:var(--primary);}
+  .badge.mock{background:#f3ecff; color:var(--c-ai);}
+
+  /* ── 状态栏 / 其他 ── */
+  #statusbar{flex:none; display:flex; gap:16px; align-items:center; padding:6px 16px; background:var(--panel); border-top:1px solid var(--line); font-size:12px; color:var(--muted);}
+  #statusbar .st{display:flex; align-items:center; gap:5px;}
+  #statusbar .st i{width:7px; height:7px; border-radius:50%; background:#c3cad6; display:inline-block;}
+  #statusbar .st.ok i{background:var(--ok);} #statusbar .st.err i{background:var(--err);}
+  #toast{position:fixed; bottom:52px; left:50%; transform:translateX(-50%); background:#1e2530; color:#fff; padding:9px 18px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.25s; z-index:99;}
+  #toast.show{opacity:1;}
+  #emptyHint{position:absolute; top:120px; left:50%; transform:translateX(-50%); text-align:center; color:var(--muted); pointer-events:none;}
+  #emptyHint .big{font-size:40px; margin-bottom:10px;}
+  #emptyHint p{font-size:13px; line-height:1.8;}
+  ::-webkit-scrollbar{width:9px;height:9px;} ::-webkit-scrollbar-thumb{background:#c9d1de; border-radius:5px;}
+</style>
+</head>
+<body data-page-node-id="YPFhNIPp1BgSKIkJyAYBG5">
+
+<header id="topbar" data-page-node-id="H4rusrKPPzI4sHAfsMoyft">
+  <div class="logo" data-page-node-id="8G9ogmcAdeHOFfIkMA0miA"><span class="dot" data-page-node-id="2IIpWPAb5HeHHJWmSq3Xv5">Φ</span>PhysFlow <small data-page-node-id="Zeo6HaBw0XxCpazy9B72jp">零代码实验数据流水线</small></div>
+  <button class="btn primary" id="btnRun" data-page-node-id="IzlaNZCWYKchPGn8OdxQ19">▶ 运行流水线</button>
+  <button class="btn" id="btnRunSel" data-page-node-id="5MaGFPaBHhEs6KI9kIE6Ng">单步运行选中节点</button>
+  <div class="spacer" data-page-node-id="VGKMnD2jNZucWstQT8UkeV"></div>
+  <select id="tplSelect" title="模板库" data-page-node-id="MYqrW2VpI3eIjFndGOZnEl"></select>
+  <button class="btn" id="btnLoadTpl" data-page-node-id="zxIuBlbXq2AXGyn781qli9">打开模板</button>
+  <button class="btn" id="btnSaveTpl" data-page-node-id="KqdpgET4Mt20wBV1naI6Ao">💾 存为模板</button>
+  <button class="btn danger" id="btnClear" data-page-node-id="JcS7YBcnQkkQDDBW2Gho3B">清空画布</button>
+</header>
+
+<div id="main" data-page-node-id="6eCfBw6qzMtLyQ4Iz4JhoF">
+  <aside id="palette" data-page-node-id="eGCdxZXNrDsYNsKmLMHpmc"></aside>
+  <div id="canvasWrap" data-page-node-id="4Brw7wliwgAjpj2tgDYnYn">
+    <div id="canvas" data-page-node-id="ofEFkSGDMsPgEI94eSNfbD">
+      <svg id="wires" data-page-node-id="r5nFBkdRnWMSgrv9mig9mK"></svg>
+      <div id="emptyHint" data-page-node-id="OZeZIsSzL6NofB7Q9go9Lp">
+        <div class="big" data-page-node-id="lyUaczmUmNcORRcAhFrJAu">🧩</div>
+        <p data-page-node-id="mRPnDyV818k3OkWvsGExI0">从左侧拖拽节点积木到画布，拖动节点右侧圆点连接到下一个节点<br data-page-node-id="1bEKo8a64BfOMXqPoyP50Y">
+        变量用 <b style="color:var(--primary)" data-page-node-id="UIEkFINeGNEd26rwFAxsJx">{{变量名}}</b> 引用，支持中文变量名 · 点击节点配置 · Delete 删除选中项</p>
+      </div>
+    </div>
+  </div>
+  <aside id="inspector" data-page-node-id="CmY9flLHDbRBlCGNrII3eq"><div style="color:var(--muted);font-size:13px;line-height:1.8;padding-top:30px;text-align:center;" data-page-node-id="VtQjoS2ySqB1ySkacVCRVm">点击画布上的节点<br data-page-node-id="bWvf2MI0K0FNlnximoANso">在这里配置与调试</div></aside>
+</div>
+
+<footer id="statusbar" data-page-node-id="PsEyToQ0FXwIebJwxCble9">
+  <span class="st" data-page-node-id="xJDcsBHQBH1LOEz2E2HvUv"><i data-page-node-id="xg7gecf76IBDGK1RfwsSeY"></i><span id="stRun" data-page-node-id="GDH8zlXQjgpxe4oiiGrN7b">就绪</span></span>
+  <span data-page-node-id="x7e3b9QxiAhhVsb70rdS3n">节点 <b id="stNodes" data-page-node-id="UjKhSO3lvOdfnJHqokYY8i">0</b></span>
+  <span data-page-node-id="JMPKZFSXJD9qExlu3jweQn">连线 <b id="stEdges" data-page-node-id="ojWlpIt0V9EGtARCkWUDce">0</b></span>
+  <span class="spacer" data-page-node-id="oelEbW0lyDoP3BAYANzeIi"></span>
+  <span data-page-node-id="a3qKUinNQRNpLtAZhkRdlu">当前画布：<b id="stTpl" data-page-node-id="lBBn86FxLBI3eKJtGMOiGE">空白画布</b></span>
+</footer>
+<div id="toast" data-page-node-id="DdaIHNlMx7TSDzRL77idg8"></div>
+
+<script>
+/* ================================================================
+   PhysFlow —— 零代码实验数据流水线搭建器（黑客松原型）
+   积木式节点系统：拖拽编排、{{var}} 变量绑定、结构化 JSON 输出
+   ================================================================ */
+
+/* ---------- 常量 ---------- */
+const NODE_W = 230, PORT_Y = 27;
+const LS_KEY = 'physflow_templates_v1';
+
+/* ---------- 节点类型库定义 ---------- */
+const CATS = [
+  {id:'input', name:'📥 输入类节点', color:'var(--c-input)'},
+  {id:'calc',  name:'🧮 计算类节点', color:'var(--c-calc)'},
+  {id:'ai',    name:'🤖 AI 推理节点', color:'var(--c-ai)'},
+  {id:'out',   name:'📤 输出导出节点', color:'var(--c-out)'},
+  {id:'ctrl',  name:'🔁 辅助控制节点', color:'var(--c-ctrl)'},
+];
+
+const DEFS = {
+  /* —— 输入类 —— */
+  manual:{cat:'input', icon:'✍️', name:'手动文本输入', desc:'自定义任意变量字段：长度、质量、时间、组数……名字自己起。填入逗号分隔的多个数值会自动识别为数组（供统计/循环节点使用）。',
+    def:()=>({fields:[{name:'f1',value:'10.98'},{name:'f2',value:'15.90'},{name:'d',value:'4.12'}]}),
+    run(c){ const o={}; for(const f of c.fields){ if(!f.name) continue; o[f.name]=parseVal(f.value); } return o; }},
+  csv:{cat:'input', icon:'📋', name:'CSV 表格导入', desc:'粘贴表格文本（逗号/制表符/空格分隔），自动解析为二维数组，输出 data 字段。',
+    def:()=>({text:'x,y\n1.0,2.1\n2.0,4.3\n3.0,6.2\n4.0,8.1', header:true}),
+    run(c){ return parseTable(c.text, c.header); }},
+  image:{cat:'input', icon:'📷', name:'图片识图录入', desc:'上传手写数据表照片，AI 视觉模型自动识别表格数字为结构化数据。当前为演示模式：识别结果可手动校正，接入视觉大模型后全自动。',
+    def:()=>({text:'50.10,50.12,50.09,50.11', fileName:''}),
+    run(c){ const t=parseTable(c.text,false); t.来源='图片识别(演示,可校正)'; return t; }},
+  const:{cat:'input', icon:'📐', name:'常量预设节点', desc:'录入实验真值、仪器精度、分度值等固定常数，供误差计算节点引用。',
+    def:()=>({items:[{name:'F0', value:'7.60', note:'透镜组焦距标准值/cm'}]}),
+    run(c){ const o={}; for(const it of c.items){ if(it.name) o[it.name]=parseVal(it.value); } return o; }},
+
+  /* —— 计算类 —— */
+  formula:{cat:'calc', icon:'🧮', name:'自定义公式计算器', desc:'自己输入数学表达式，多个上游变量自动代入。内置函数：abs 绝对值、sqrt 平方根、mean 均值、std 标准差、min、max、sin、cos、tan、log、ln、exp；常数 pi、e。支持数组整体运算。',
+    def:()=>({precision:2, exprs:[{out:'F', expr:'f1*f2/(f1+f2-d)'}]}),
+    run(c,V){ const o={}, local={...V}; for(const it of c.exprs){ if(!it.out) continue; const v=fmt(evalExpr(it.expr||'0',local), c.precision); o[it.out]=v; local[it.out]=v; } return o; }},
+  stats:{cat:'calc', icon:'📊', name:'统计计算', desc:'对一组重复测量数据自动求：平均值、标准偏差（贝塞尔公式）、A类不确定度 = s/√n。',
+    def:()=>({varName:'', precision:2}),
+    run(c,V){ const a=arrOf(V[c.varName]); if(!a) throw new Error('未找到数组变量 "'+c.varName+'"，请检查上游输入');
+      const n=a.length, m=mean(a), s=std(a);
+      return {测量组数:n, 原始数据:a, 平均值:fmt(m,c.precision), 标准差:fmt(s,c.precision), A类不确定度:fmt(s/Math.sqrt(n),c.precision)}; }},
+  error:{cat:'calc', icon:'🎯', name:'误差计算', desc:'填入测量值与真值的表达式（或变量名），自动算绝对误差、相对误差；可选填 A类不确定度与仪器误差极限 Δ仪，自动合成不确定度 u=√(uA²+uB²)，uB=Δ仪/√3。',
+    def:()=>({meas:'', truth:'', ua:'', dg:'', precision:2}),
+    run(c,V){ const mv=evalExpr(c.meas||'0',V), tv=evalExpr(c.truth||'0',V);
+      const o={测量值:fmt(mv,c.precision), 真值:fmt(tv,c.precision), 绝对误差:fmt(Math.abs(mv-tv),c.precision), 相对误差百分比:fmt(Math.abs(mv-tv)/Math.abs(tv)*100,c.precision)};
+      if(c.ua){ const ua=evalExpr(c.ua,V); if(c.dg){ const ub=Number(c.dg)/Math.sqrt(3); o.B类不确定度=fmt(ub,c.precision);
+          o.合成不确定度=fmt(Math.sqrt(ua*ua+ub*ub),c.precision); } else o.合成不确定度=fmt(ua,c.precision); }
+      else if(c.dg){ const ub=Number(c.dg)/Math.sqrt(3); o.B类不确定度=fmt(ub,c.precision); }
+      return o; }},
+  unit:{cat:'calc', icon:'🔄', name:'单位转换', desc:'cm/m、mm/m、g/kg、mg/g、度/弧度、s/ms 互转。填变量或表达式。',
+    def:()=>({expr:'0', from:'cm', to:'m', precision:2}),
+    run(c,V){ const v=evalExpr(c.expr||'0',V); return {结果:fmt(convertUnit(v,c.from,c.to),c.precision), 换算:c.from+' → '+c.to}; }},
+
+  /* —— AI 类 —— */
+  judge:{cat:'ai', icon:'🔍', name:'AI 数据判读', desc:'根据上游计算结果自动评价误差大小、判断数据合理性、识别离群异常值（z 检验）。演示模式用本地规则引擎，可无缝切换为真实大模型。',
+    def:()=>({role:'助教', prompt:''}),
+    run(c,V){ return aiJudge(V,c); }},
+  qa:{cat:'ai', icon:'💬', name:'实验答疑', desc:'输入实验思考题，AI 结合当前本组数据给出适配简答。演示模式基于关键词规则生成，接入 LLM 后按 prompt 原样调用。',
+    def:()=>({role:'助教', question:'为什么要多次测量取平均？'}),
+    run(c,V){ return aiQA(c,V); }},
+  summary:{cat:'ai', icon:'📝', name:'AI 结果总结', desc:'自动生成实验结论与误差来源分析，可直接写入报告。',
+    def:()=>({role:'助教'}),
+    run(c,V){ return aiSummary(V,c); }},
+  fit:{cat:'ai', icon:'📈', name:'数据拟合（线性）', desc:'选上游 x、y 两组数组，最小二乘线性拟合，输出斜率、截距、相关系数与 R²。',
+    def:()=>({x:'', y:'', precision:2}),
+    run(c,V){ const x=arrOf(V[c.x]), y=arrOf(V[c.y]);
+      if(!x||!y) throw new Error('请在上游准备 x、y 两个数组变量并在下方选择');
+      if(x.length!==y.length||x.length<2) throw new Error('x、y 长度需相等且至少 2 组');
+      const n=x.length, mx=mean(x), my=mean(y);
+      let sxy=0,sxx=0,syy=0; for(let i=0;i<n;i++){ sxy+=(x[i]-mx)*(y[i]-my); sxx+=(x[i]-mx)**2; syy+=(y[i]-my)**2; }
+      const k=sxy/sxx, b=my-k*mx, r=sxy/Math.sqrt(sxx*syy);
+      return {样本数:n, 斜率k:fmt(k,c.precision), 截距b:fmt(b,c.precision), 相关系数r:fmt(r,4), R2:fmt(r*r,4), 拟合式:`y = ${fmt(k,c.precision)}·x + ${fmt(b,c.precision)}`}; }},
+
+  /* —— 输出类 —— */
+  preview:{cat:'out', icon:'👁️', name:'文本预览', desc:'把上游全部结果直接展示出来，运行后在本面板查看。',
+    def:()=>({}),
+    run(c,V){ return V; }},
+  report:{cat:'out', icon:'📄', name:'Markdown 报告生成', desc:'整合上游全部数据、计算结果、误差与 AI 分析，一键生成可复制的实验报告 Markdown，可下载 .md 文件。',
+    def:()=>({title:'实验报告', author:''}),
+    run(c,V){ return aiReport(V,c); }},
+  csvout:{cat:'out', icon:'📤', name:'CSV 导出', desc:'选择上游一个数组或表格变量，输出 CSV 文本，可直接复制到 Excel。',
+    def:()=>({varName:''}),
+    run(c,V){ const v=V[c.varName]; if(v===undefined) throw new Error('未找到变量 "'+c.varName+'"');
+      let rows = Array.isArray(v)&&Array.isArray(v[0]) ? v : [Array.isArray(v)?v:[v]];
+      const csv=rows.map(r=>r.join(',')).join('\n');
+      return {csv文本:csv, 行数:rows.length}; }},
+  mindmap:{cat:'out', icon:'🧠', name:'思维导图/摘要', desc:'提炼本次实验核心结果，生成大纲式摘要，适合预习与答辩速记。',
+    def:()=>({}),
+    run(c,V){ return aiMindmap(V); }},
+
+  /* —— 控制类 —— */
+  branch:{cat:'ctrl', icon:'🔀', name:'分支判断节点', desc:'写一个条件表达式（支持 > < >= <=），结果为真走【分支A】，否则走【分支B】。例如：相对误差百分比 < 5',
+    def:()=>({cond:'相对误差百分比 < 5', aLabel:'合格 → 生成报告', bLabel:'超差 → 检查数据'}),
+    run(c,V){ const v=evalExpr(c.cond||'true',V);
+      return {条件表达式:c.cond, 条件结果:!!v, 走向: v? ('分支A：'+(c.aLabel||'A')) : ('分支B：'+(c.bLabel||'B'))}; }},
+  loop:{cat:'ctrl', icon:'🔁', name:'循环节点（批量处理）', desc:'选一个上游数组变量，对每个元素套用公式（元素别名默认 x，也可引用其他上游变量），批量输出结果数组。',
+    def:()=>({varName:'', alias:'x', expr:'x*2', precision:2}),
+    run(c,V){ const a=arrOf(V[c.varName]); if(!a) throw new Error('未找到数组变量 "'+c.varName+'"');
+      const out=a.map((x,i)=>fmt(evalExpr(c.expr||'x', {...V, [c.alias||'x']:x, 序号:i+1}), c.precision));
+      return {处理组数:a.length, 结果数组:out}; }},
+};
+
+/* ---------- 数学与求值 ---------- */
+function mean(a){ if(!Array.isArray(a)) throw new Error('均值() 需要传入一组数组变量，收到的是单个数值'); return a.reduce((s,v)=>s+v,0)/a.length; }
+function std(a){ if(!Array.isArray(a)) throw new Error('标准差() 需要传入一组数组变量，收到的是单个数值'); if(a.length<2) return 0; const m=mean(a); return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1)); }
+function arrOf(v){ if(typeof v==='number') return [v]; if(Array.isArray(v)&&v.length&&v.every(x=>typeof x==='number')) return v; if(Array.isArray(v)&&v.length&&Array.isArray(v[0])) { const f=v.flat().filter(x=>typeof x==='number'); return f.length?f:null; } return null; }
+function parseVal(s){ s=String(s).trim(); if(s==='') return '';
+  if(/^[\d.,，;\s\/]+$/.test(s)&&/[.,，;\s]/.test(s)){ const parts=s.split(/[,，;\s]+/).filter(Boolean).map(Number); if(parts.length>1&&parts.every(x=>Number.isFinite(x))) return parts; }
+  const n=Number(s); return Number.isFinite(n)?n:s; }
+function fmt(v,p=2){ if(typeof v==='number') return Number.isFinite(v)?parseFloat(v.toFixed(p)):v; if(Array.isArray(v)) return v.map(x=>fmt(x,p)); return v; }
+
+function tokenize(s){
+  const toks=[]; let i=0;
+  const idStart=c=>/[\u4e00-\u9fa5A-Za-z_]/.test(c), idc=c=>/[\u4e00-\u9fa5A-Za-z0-9_]/.test(c);
+  while(i<s.length){
+    const c=s[i];
+    if(/\s/.test(c)){i++;continue;}
+    if(/[0-9.]/.test(c)){ let j=i; while(j<s.length&&/[0-9.]/.test(s[j]))j++; const n=parseFloat(s.slice(i,j)); if(!Number.isFinite(n)) throw new Error('非法数字'); toks.push({t:'num',v:n}); i=j; continue; }
+    if(idStart(c)){ let j=i; while(j<s.length&&idc(s[j]))j++; toks.push({t:'id',v:s.slice(i,j)}); i=j; continue; }
+    const two=s.substr(i,2);
+    if(['>=','<=','==','!='].includes(two)){ toks.push({t:'op',v:two}); i+=2; continue; }
+    if('+-*/^()<>,><'.includes(c)){ toks.push({t:'op',v:c}); i++; continue; }
+    throw new Error('无法识别的符号「'+c+'」');
+  }
+  return toks;
+}
+function bin(a,b,f){
+  if(Array.isArray(a)&&Array.isArray(b)){ if(a.length!==b.length) throw new Error('数组长度不一致'); return a.map((v,i)=>f(v,b[i])); }
+  if(Array.isArray(a)) return a.map(v=>f(v,b));
+  if(Array.isArray(b)) return b.map(v=>f(a,v));
+  return f(a,b);
+}
+const FNS={abs:Math.abs, 绝对值:Math.abs, sqrt:Math.sqrt, 平方根:Math.sqrt, mean, 均值:mean, 平均:mean, std, 标准差:std,
+  min:Math.min, max:Math.max, pow:Math.pow, sin:Math.sin, cos:Math.cos, tan:Math.tan,
+  log:Math.log10, ln:Math.log, exp:Math.exp, round:(x,p=0)=>{const m=10**p; return Math.round(x*m)/m;}, sum:a=>a.reduce((s,v)=>s+v,0), len:a=>a.length};
+function evalExpr(src, vars){
+  const toks=tokenize(String(src).replace(/\{\{\s*([^}]+?)\s*\}\}/g,'$1'));
+  let p=0;
+  const peek=()=>toks[p], eat=()=>toks[p++];
+  function cmp(){ let a=add();
+    while(peek()&&peek().t==='op'&&['>','<','>=','<=','==','!='].includes(peek().v)){ const o=eat().v, b=add();
+      a={'>':()=>a>b,'<':()=>a<b,'>=':()=>a>=b,'<=':()=>a<=b,'==':()=>a==b,'!=':()=>a!=b}[o](); } return a; }
+  function add(){ let a=mul(); while(peek()&&peek().t==='op'&&(peek().v==='+'||peek().v==='-')){ const o=eat().v, b=mul(); a=bin(a,b,(x,y)=>o==='+'?x+y:x-y); } return a; }
+  function mul(){ let a=unary(); while(peek()&&peek().t==='op'&&(peek().v==='*'||peek().v==='/')){ const o=eat().v, b=unary(); a=bin(a,b,(x,y)=>o==='*'?x*y:x/y); } return a; }
+  function unary(){ if(peek()&&peek().t==='op'&&peek().v==='-'){ eat(); const v=unary(); return typeof v==='number'? -v : v.map(x=>-x); } return pow(); }
+  function pow(){ const a=atom(); if(peek()&&peek().t==='op'&&peek().v==='^'){ eat(); const b=unary(); return bin(a,b,(x,y)=>x**y); } return a; }
+  function atom(){
+    const t=peek(); if(!t) throw new Error('表达式不完整');
+    if(t.t==='num'){ eat(); return t.v; }
+    if(t.t==='op'&&t.v==='('){ eat(); const v=cmp(); if(!peek()||peek().v!==')') throw new Error('缺少右括号'); eat(); return v; }
+    if(t.t==='id'){ eat();
+      if(peek()&&peek().t==='op'&&peek().v==='('){ eat(); const args=[];
+        if(peek()&&peek().v!==')'){ args.push(cmp()); while(peek()&&peek().v===','){ eat(); args.push(cmp()); } }
+        if(!peek()||peek().v!==')') throw new Error('缺少右括号'); eat();
+        const f=FNS[t.v]; if(!f) throw new Error('未知函数: '+t.v); return f(...args); }
+      if(t.v==='pi'||t.v==='π') return Math.PI; if(t.v==='e') return Math.E;
+      if(vars && t.v in vars) return vars[t.v];
+      throw new Error('未知变量「'+t.v+'」——请检查上游节点是否已连入并运行'); }
+    throw new Error('表达式语法错误：'+(t.v||t.t));
+  }
+  const v=cmp(); if(p<toks.length) throw new Error('表达式有多余内容：'+toks[p].v); return v;
+}
+const UNIT_GROUPS={长度:{m:1,dm:.1,cm:.01,mm:.001,um:1e-6}, 质量:{kg:1,g:.001,mg:1e-6,t:1000}, 角度:{rad:1,deg:Math.PI/180}, 时间:{s:1,ms:.001,us:1e-6}};
+function convertUnit(v,f,t){ for(const g of Object.values(UNIT_GROUPS)){ if(g[f]!==undefined&&g[t]!==undefined) return bin(v,g[f]/g[t],(x,k)=>x*k); } throw new Error('不支持的单位转换: '+f+' → '+t); }
+function parseTable(text, hasHeader){
+  const rows=[];
+  for(const line of String(text||'').split(/\r?\n/)){ if(!line.trim()) continue;
+    let cells=line.split(/[,;\t]+/).map(s=>s.trim()).filter(s=>s!=='');
+    if(cells.length===1) cells=line.trim().split(/\s+/);
+    rows.push(cells.map(s=>{ const n=Number(s); return Number.isFinite(n)&&s!==''?n:s; })); }
+  if(!rows.length) throw new Error('表格内容为空');
+  const o={data:hasHeader?rows.slice(1):rows, 行数:hasHeader?rows.length-1:rows.length, 列数:rows[0].length};
+  if(hasHeader) o.表头=rows[0];
+  return o;
+}
+
+/* ---------- AI 节点（本地规则引擎，演示模式） ---------- */
+function flatVars(V){ const out={}; for(const [k,v] of Object.entries(V||{})){ if(typeof v==='number') out[k]=v; else if(Array.isArray(v)&&v.every(x=>typeof x==='number')) out[k]=v; } return out; }
+function findKey(V, re){ for(const [k,v] of Object.entries(flatVars(V))) if(re.test(k)&&typeof v==='number') return {k,v}; return null; }
+function aiJudge(V,c){
+  const rel=findKey(V,/相对误差/), nums=flatVars(V);
+  let 合理性='数据量不足，无法评价', 建议='请先连接误差计算节点，提供相对误差指标。';
+  if(rel){ const e=Math.abs(rel.v);
+    合理性 = e<2?'✅ 优秀':e<5?'👍 良好':e<10?'🆗 合格':'⚠️ 偏大';
+    建议 = e<2?'测量精度很高，误差控制优秀，可进行报告撰写。':
+           e<5?'结果可接受，建议在报告中重点讨论主要误差来源。':
+           e<10?'误差略大，建议检查仪器读数与多次测量取平均。':
+           '误差明显偏大，请检查：①公式与变量是否接错 ②真值设置 ③原始数据读数 ④是否存在粗大误差。';
+  }
+  const 离群点=[];
+  for(const [k,v] of Object.entries(nums)){ if(Array.isArray(v)&&v.length>=4){ const m=mean(v), s=std(v);
+    if(s>0) v.forEach((x,i)=>{ if(Math.abs((x-m)/s)>2) 离群点.push({变量:k, 第几组:i+1, 数值:x, 偏离倍数:parseFloat((Math.abs((x-m)/s)).toFixed(2))}); }); } }
+  const refs=Object.entries(nums).slice(0,6).map(([k,v])=>Array.isArray(v)?`${k}=[${v.map(x=>parseFloat(x.toFixed(2))).join(', ')}]`:`${k}=${parseFloat(v.toFixed(4))}`);
+  return {AI角色:c.role||'助教', 判读结论:合理性, 相对误差参考:rel?parseFloat(rel.v.toFixed(2))+'%':null, 离群点, 操作建议:建议,
+    参考数据:refs, 说明:'演示模式：本地规则引擎生成。可在「模板库上线版」中接入真实大模型，并使用自定义 prompt：'+((c.prompt&&'「'+c.prompt+'」')||'未配置，使用默认。')};
+}
+function aiQA(c,V){
+  const q=c.question||'', nums=flatVars(V), refs=Object.entries(nums).slice(0,4).map(([k,v])=>Array.isArray(v)?`${k}（${v.length}个数据）`:`${k}=${parseFloat(v.toFixed(4))}`);
+  let core;
+  if(/不确定度|A类|B类/.test(q)) core='多次测量的偶然误差用统计方法评定为 A类不确定度（s/√n）；仪器精度带来的为 B类（Δ仪/√3）；两者方和根合成为总不确定度。本组数据可接「统计计算→误差计算」节点自动算出。';
+  else if(/误差|偏大|不准/.test(q)) core='误差来源一般分三类：①仪器误差（分度值、零点漂移）②方法误差（公式近似、条件不满足）③人员误差（估读、反应时间）。建议增加重复测量次数并用「统计计算」节点判断离散程度。';
+  else if(/为什么.*多次|平均/.test(q)) core='多次测量取平均可抵消正负随机误差，平均值的标准差按 1/√n 收缩——测量次数越多，A类不确定度越小，结果越接近真值。本组数据已通过「统计计算」节点验证。';
+  else if(/为什么|原理|如何|怎么/.test(q)) core='建议从实验原理出发：写出核心公式，逐项分析每个量的测量方式与误差传递。可将公式拆到「自定义公式计算器」节点，逐项代入本组数据验证。';
+  else core='结合本组数据与实验教材思考题解析作答；如需更精准解答，可在下方编辑提示词并接入真实大模型。';
+  return {AI角色:c.role||'助教', 问题:q, 参考解答:core, 结合的本组数据:refs, 说明:'演示模式回答，接入 LLM 后由大模型结合完整数据上下文生成。'};
+}
+function aiSummary(V,c){
+  const nums=flatVars(V), rel=findKey(V,/相对误差/);
+  const lines=Object.entries(nums).map(([k,v])=>Array.isArray(v)?`- ${k}：${v.length} 组测量，均值 ${parseFloat(mean(v).toFixed(2))}`:`- ${k} = ${parseFloat(v.toFixed(4))}`);
+  const concl=(rel? `本实验最终结果的相对误差为 ${parseFloat(Math.abs(rel.v).toFixed(2))}%，`:'')+
+    (rel&&Math.abs(rel.v)<5?'在合理范围内，实验方案与操作有效。':'请结合误差来源分析改进测量。')+'主要误差来源包括仪器分度值限制、读数估读与环境波动。';
+  return {AI角色:c.role||'助教', 实验要点:lines.slice(0,8), 结论:concl, 说明:'演示模式生成，可在报告中直接引用。'};
+}
+function aiReport(V,c){
+  const nums=flatVars(V);
+  let md=`# ${c.title||'实验报告'}\n`;
+  if(c.author) md+=`\n> 撰写：${c.author}　·　由 PhysFlow 流水线自动生成　·　${new Date().toLocaleString('zh-CN')}\n`;
+  md+=`\n## 一、数据与计算结果\n\n| 变量 | 数值 |\n| --- | --- |\n`;
+  for(const [k,v] of Object.entries(nums)){ md+=Array.isArray(v)?`| ${k} | ${v.map(x=>typeof x==='number'?parseFloat(x.toFixed(2)):x).join(', ')} |\n`:`| ${k} | ${typeof v==='number'?parseFloat(v.toFixed(4)):v} |\n`; }
+  const aiSec=Object.entries(V).filter(([k,v])=>typeof v==='string'&&/^(参考数据|判读结论|操作建议|结论|参考解答)$/.test(k));
+  if(aiSec.length){ md+=`\n## 二、AI 分析\n\n`+aiSec.map(([k,v])=>`**${k}**：${v}\n`).join('\n'); }
+  md+=`\n## ${aiSec.length?'三':'二'}、结论\n${(V['结论']||'见上方计算结果与 AI 分析。')}\n`;
+  return {markdown:md, 字数:md.length};
+}
+function aiMindmap(V){
+  const nums=flatVars(V); const root={主题:'实验核心摘要', 分支:[]};
+  const calc=[], ai=[];
+  for(const [k,v] of Object.entries(nums)) calc.push(Array.isArray(v)?`${k}（${v.length}组）`:`${k}=${parseFloat(v.toFixed(2))}`);
+  for(const k of ['判读结论','操作建议','结论','参考解答']) if(V[k]) ai.push(String(V[k]).slice(0,40));
+  root.分支.push({name:'核心数值', items:calc.slice(0,8)}); if(ai.length) root.分支.push({name:'AI 结论', items:ai.slice(0,3)});
+  return root;
+}
+
+/* ---------- 画布状态 ---------- */
+let nodes=[], edges=[], selNode=null, selEdge=null, counter={};
+const $=s=>document.querySelector(s);
+const canvasEl=$('#canvas'), wrapEl=$('#canvasWrap'), wiresEl=$('#wires');
+const nodeById=id=>nodes.find(n=>n.id===id);
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2200); }
+function nextId(type){ counter[type]=(counter[type]||0)+1; return type+'_'+Date.now().toString(36)+'_'+counter[type]; }
+
+/* ---------- 渲染：侧栏 ---------- */
+function renderPalette(){
+  const p=$('#palette'); let h='<div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:4px;">拖拽积木到画布 → 连线绑定变量 → 运行流水线</div>';
+  for(const cat of CATS){
+    h+=`<div class="pal-cat"><span class="bar" style="background:${cat.color}"></span>${cat.name}</div>`;
+    for(const [type,d] of Object.entries(DEFS)){ if(d.cat!==cat.id) continue;
+      h+=`<div class="pal-item" draggable="true" data-type="${type}"><span class="ic">${d.icon}</span><div><b>${d.name}</b><span>${d.desc.split('。')[0]}</span></div></div>`; }
+  }
+  h+='<div style="font-size:11px;color:var(--muted);margin-top:14px;line-height:1.6;border-top:1px dashed var(--line);padding-top:10px;">禁止硬编码实验公式——除演示模板外，一切公式由学生在公式节点内自定义。</div>';
+  p.innerHTML=h;
+  p.querySelectorAll('.pal-item').forEach(el=>{
+    el.addEventListener('dragstart',e=>e.dataTransfer.setData('text/plain',el.dataset.type));
+    el.addEventListener('click',()=>addNode(el.dataset.type, 120+Math.random()*300, 100+Math.random()*260));
+  });
+}
+
+/* ---------- 渲染：画布 ---------- */
+function renderCanvas(){
+  canvasEl.querySelectorAll('.node').forEach(el=>el.remove());
+  $('#emptyHint').style.display=nodes.length?'none':'block';
+  for(const n of nodes) canvasEl.appendChild(nodeEl(n));
+  drawWires(); updateStatus();
+}
+function nodeEl(n){
+  const d=DEFS[n.type];
+  const el=document.createElement('div');
+  el.className='node cat-'+n.type+(selNode===n.id?' sel':'')+(n.enabled?'':' disabled')+' st-'+(n.enabled?(n.output?n.output.status:'idle'):'skip');
+  el.style.left=n.x+'px'; el.style.top=n.y+'px'; el.dataset.id=n.id;
+  let body='';
+  if(n.output&&n.output.json){
+    const j=n.output.json;
+    if(typeof j==='string') body=`<div class="kv"><b>${esc(String(j)).slice(0,60)}</b></div>`;
+    else for(const [k,v] of Object.entries(j).slice(0,4)){
+      let vs=Array.isArray(v)?(v.length>3?`[${v.slice(0,3).map(x=>typeof x==='number'?parseFloat(x.toFixed(2)):x).join(', ')}…共${v.length}项]`:`[${v.map(x=>typeof x==='number'?parseFloat(x.toFixed(2)):x).join(', ')}]`)
+        :typeof v==='object'?'{…}':String(v);
+      body+=`<div class="kv"><span>${esc(k)}</span><b>${esc(vs)}</b></div>`;
+    }
+  } else if(n.output&&n.output.error){ body=`<div class="kv" style="color:var(--err)"><b>⛔ ${esc(n.output.error).slice(0,50)}</b></div>`; }
+  else body=`<div class="kv"><span>未运行</span></div>`;
+  el.innerHTML=`
+    <div class="node-head"><span class="dot"></span><span class="t">${esc(n.title)}</span><button class="x" title="删除节点">✕</button></div>
+    <span class="node-type" style="background:${catColor(d.cat)}">${d.icon} ${d.name}</span>
+    <div class="node-body">${body}</div>
+    <div class="node-foot">
+      <button class="mini" data-act="debug">调试</button>
+      <button class="mini" data-act="copy">复制</button>
+      <label><input type="checkbox" ${n.enabled?'checked':''}>启用</label>
+    </div>
+    <div class="port in" title="输入口"></div><div class="port out" title="拖到目标节点连线"></div>`;
+  el.querySelector('.node-head .x').addEventListener('click',e=>{e.stopPropagation(); removeNode(n.id);});
+  el.querySelector('.node-foot input').addEventListener('change',e=>{ n.enabled=e.target.checked; n.output=null; renderCanvas(); if(selNode===n.id) renderInspector(); });
+  el.querySelector('[data-act=debug]').addEventListener('click',e=>{e.stopPropagation(); runSingle(n.id);});
+  el.querySelector('[data-act=copy]').addEventListener('click',e=>{e.stopPropagation(); copyNode(n.id);});
+  el.addEventListener('mousedown',e=>{
+    if(e.target.closest('.node-foot')||e.target.closest('.x')||e.target.closest('.port')) return;
+    selectNode(n.id);
+    const sx=e.clientX-n.x, sy=e.clientY-n.y;
+    const move=ev=>{ n.x=Math.max(0,ev.clientX-sx); n.y=Math.max(0,ev.clientY-sy); el.style.left=n.x+'px'; el.style.top=n.y+'px'; drawWires(); };
+    const up=()=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+  });
+  el.addEventListener('dblclick',()=>{ selectNode(n.id); $('#inspector input[type=text]')?.focus(); });
+  /* 端口连线 */
+  el.querySelector('.port.out').addEventListener('mousedown',e=>{
+    e.stopPropagation(); const temp=document.createElementNS('http://www.w3.org/2000/svg','path'); temp.setAttribute('class','wire-temp'); wiresEl.appendChild(temp);
+    const from={x:n.x+NODE_W+6,y:n.y+PORT_Y};
+    const move=ev=>{ const r=canvasEl.getBoundingClientRect(); const mx=ev.clientX-r.left, my=ev.clientY-r.top;
+      temp.setAttribute('d',bezier(from.x,from.y,mx,my)); };
+    const up=ev=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); temp.remove();
+      const t=ev.target.closest?ev.target.closest('.node'):null;
+      if(t&&t.dataset.id&&t.dataset.id!==n.id) addEdge(n.id,t.dataset.id); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+  });
+  return el;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function catColor(c){ return {input:'var(--c-input)',calc:'var(--c-calc)',ai:'var(--c-ai)',out:'var(--c-out)',ctrl:'var(--c-ctrl)'}[c]||'#888'; }
+function bezier(x1,y1,x2,y2){ const dx=Math.max(50,Math.abs(x2-x1)/2); return `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`; }
+function drawWires(){
+  let h=`<defs><marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9aa6b8"/></marker></defs>`;
+  for(const e of edges){
+    const a=nodeById(e.from), b=nodeById(e.to); if(!a||!b) continue;
+    const d=bezier(a.x+NODE_W+6,a.y+PORT_Y,b.x-6,b.y+PORT_Y);
+    const sel=selEdge===e.from+'|'+e.to;
+    h+=`<path class="wire-hit" data-e="${e.from}|${e.to}" d="${d}"/>`;
+    h+=`<path class="wire${sel?' sel':''}" data-e="${e.from}|${e.to}" d="${d}" marker-end="url(#arw)"/>`;
+  }
+  wiresEl.innerHTML=h;
+  wiresEl.querySelectorAll('.wire-hit').forEach(el=>{
+    el.addEventListener('click',()=>{ selEdge=el.dataset.e; selNode=null; drawWires(); renderInspector(); });
+  });
+  $('#stNodes').textContent=nodes.length; $('#stEdges').textContent=edges.length;
+}
+function updateStatus(){ $('#stNodes').textContent=nodes.length; $('#stEdges').textContent=edges.length; }
+
+/* ---------- 增删节点/连线 ---------- */
+function addNode(type,x,y){
+  const d=DEFS[type]; if(!d) return;
+  const n={id:nextId(type), type, title:d.name, x:Math.round(x), y:Math.round(y), enabled:true, config:d.def(), output:null};
+  nodes.push(n); selectNode(n.id); renderCanvas(); toast('已添加节点：'+d.name);
+}
+function removeNode(id){
+  nodes=nodes.filter(n=>n.id!==id); edges=edges.filter(e=>e.from!==id&&e.to!==id);
+  if(selNode===id){ selNode=null; renderInspector(); } renderCanvas();
+}
+function copyNode(id){
+  const n=nodeById(id); if(!n) return;
+  const c=JSON.parse(JSON.stringify(n)); c.id=nextId(n.type); c.title=n.title+' 副本'; c.x+=40; c.y+=40; c.output=null;
+  nodes.push(c); selectNode(c.id); renderCanvas();
+}
+function addEdge(from,to){
+  if(edges.some(e=>e.from===from&&e.to===to)) return toast('连线已存在');
+  if(wouldCycle(from,to)) return toast('⛔ 不能形成环路');
+  edges.push({from,to}); drawWires(); toast('已连线，下游节点可引用上游的全部输出变量');
+}
+function wouldCycle(from,to){
+  const seen=new Set(); const st=[to];
+  while(st.length){ const id=st.pop(); if(id===from) return true; if(seen.has(id)) continue; seen.add(id);
+    for(const e of edges) if(e.from===id) st.push(e.to); }
+  return false;
+}
+function selectNode(id){ selNode=id; selEdge=null;
+  canvasEl.querySelectorAll('.node').forEach(el=>el.classList.toggle('sel',el.dataset.id===id));
+  drawWires(); renderInspector();
+}
+
+/* ---------- 检查器 ---------- */
+function upstreamVars(nodeId){
+  const order=[], seen=new Set(), stack=[nodeId];
+  const visit=id=>{ if(seen.has(id)) return; seen.add(id);
+    for(const e of edges) if(e.to===id) visit(e.from); order.push(id); };
+  visit(nodeId); order.pop();
+  const vars={};
+  for(const id of order){ const n=nodeById(id); if(n&&n.enabled&&n.output&&n.output.status==='ok'&&!n.output.error) Object.assign(vars,n.output.json); }
+  return vars;
+}
+function upstreamNodeList(nodeId){
+  const seen=new Set(), list=[], visit=id=>{ if(seen.has(id)) return; seen.add(id);
+    for(const e of edges) if(e.to===id) visit(e.from); list.push(id); };
+  visit(nodeId); list.pop();
+  return list.map(nodeById).filter(Boolean);
+}
+function renderInspector(){
+  const box=$('#inspector');
+  if(selEdge){ const [f,t]=selEdge.split('|');
+    box.innerHTML=`<h2>🔗 连线</h2><div class="desc">${esc(nodeById(f)?.title||'')} → ${esc(nodeById(t)?.title||'')}</div>
+    <div class="hint">连线开通后，<b>上游节点的全部输出变量</b>都可被下游引用。删除连线：选中后按 <code>Delete</code> 或双击连线。</div>
+    <div class="rowbtns"><button class="btn danger" id="delEdge">删除连线</button></div>`;
+    $('#delEdge').onclick=()=>{ edges=edges.filter(e=>!(e.from===f&&e.to===t)); selEdge=null; drawWires(); renderInspector(); };
+    return;
+  }
+  const n=selNode&&nodeById(selNode);
+  if(!n){ box.innerHTML='<div style="color:var(--muted);font-size:13px;line-height:1.8;padding-top:30px;text-align:center;">点击画布上的节点<br>在这里配置与调试</div>'; return; }
+  const d=DEFS[n.type];
+  let h=`<h2>${d.icon} ${esc(n.title)}</h2><div class="desc">${d.desc}</div>
+  <div class="fld"><label>节点标题</label><input type="text" data-cfg="__title" value="${esc(n.title)}"></div>`;
+  h+=typeForm(n);
+  h+=`<div class="rowbtns"><button class="btn primary" id="btnRunOne">▶ 调试运行此节点</button>
+      <button class="btn" id="btnCopyOut">复制输出 JSON</button>
+      ${n.type==='report'?'<button class="btn" id="btnDlMd">⬇ 下载 .md</button>':''}</div>
+  <div class="outbox" id="outBox">${outBoxHtml(n)}</div>`;
+  box.innerHTML=h;
+  bindInspector(n);
+}
+function outBoxHtml(n){
+  if(!n.output) return '<h4>输出（结构化 JSON）</h4><pre>尚未运行</pre>';
+  if(n.output.error) return `<h4>输出</h4><pre class="err">⛔ ${esc(n.output.error)}</pre>`;
+  const j=n.output.json;
+  const txt = (n.type==='report'&&j&&j.markdown)? j.markdown : (n.type==='csvout'&&j&&j['csv文本'])? j['csv文本'] : JSON.stringify(j,null,2);
+  return `<h4>输出（结构化 JSON）<span class="badge">${n.output.status==='ok'?'✓ 运行成功':'状态:'+n.output.status}</span></h4><pre>${esc(txt)}</pre>`;
+}
+function typeForm(n){
+  const c=n.config; let h='';
+  const vars=upstreamNodeList(n.id).flatMap(id=>{ const o=nodeById(id); return (o&&o.enabled&&o.output&&o.output.json)?Object.keys(o.output.json):[]; });
+  const dl=vars.length?`<datalist id="dl_${n.id}">${vars.map(v=>`<option value="${esc(v)}">`).join('')}</datalist>`:'';
+  const fld=(label,inner)=>`<div class="fld"><label>${label}</label>${inner}</div>`;
+  switch(n.type){
+    case 'manual':
+      h+=fld('变量字段（名字自起，支持中文）','<div id="fList"></div><button class="btn btn-sm" id="addField">＋ 添加字段</button>');
+      break;
+    case 'const':
+      h+=fld('常量（真值 / 仪器精度 / 分度值）','<div id="fList"></div><button class="btn btn-sm" id="addField">＋ 添加常量</button>');
+      break;
+    case 'csv': case 'image':
+      h+=fld('表格文本（逗号 / 空格 / Tab 分隔）',`<textarea data-cfg="text" rows="5">${esc(c.text)}</textarea>`)+
+        (n.type==='csv'?`<div class="fld"><label class="form-check" style="font-size:12px;color:var(--muted)"><input type="checkbox" data-cfg="header" ${c.header?'checked':''} style="margin-right:5px">首行是表头</label></div>`:'');
+      break;
+    case 'formula':
+      h+=`<div class="hint">写法：<code>输出名 = 表达式</code>。变量直接写名字或 <code>{{名字}}</code>；数组可整体运算，如 <code>偏差 = 数据 - 平均值</code>。</div>`+
+         fld('计算精度（小数位）',`<input type="number" data-cfg="precision" value="${c.precision}" min="0" max="8">`)+
+         fld('公式列表','<div id="fList"></div><button class="btn btn-sm" id="addExpr">＋ 添加公式</button>');
+      break;
+    case 'stats':
+      h+=fld('选择数组变量'+dl,`<input type="text" data-cfg="varName" list="dl_${n.id}" value="${esc(c.varName)}" placeholder="如：T测量">`)+
+        fld('计算精度',`<input type="number" data-cfg="precision" value="${c.precision}" min="0" max="8">`);
+      break;
+    case 'error':
+      h+=fld('测量值（变量或表达式）'+dl,`<input type="text" data-cfg="meas" list="dl_${n.id}" value="${esc(c.meas)}">`)+
+        fld('真值（变量或表达式）'+dl,`<input type="text" data-cfg="truth" list="dl_${n.id}" value="${esc(c.truth)}">`)+
+        fld('A类不确定度（可选，来自统计节点）'+dl,`<input type="text" data-cfg="ua" list="dl_${n.id}" value="${esc(c.ua)}">`)+
+        fld('仪器误差极限 Δ仪（可选，数值）',`<input type="number" data-cfg="dg" value="${esc(c.dg)}" step="any">`)+
+        fld('计算精度',`<input type="number" data-cfg="precision" value="${c.precision}" min="0" max="8">`);
+      break;
+    case 'unit':
+      h+=fld('数值（变量或表达式）'+dl,`<input type="text" data-cfg="expr" list="dl_${n.id}" value="${esc(c.expr)}">`)+
+        fld('从单位 → 到单位',`<div class="row"><select data-cfg="from">${unitOpts(c.from)}</select><select data-cfg="to">${unitOpts(c.to)}</select></div>`)+
+        fld('精度',`<input type="number" data-cfg="precision" value="${c.precision}" min="0" max="8">`);
+      break;
+    case 'judge':
+      h+=fld('AI 角色',`<select data-cfg="role">${['助教','批改老师','实验搭档','严谨审稿人'].map(r=>`<option ${c.role===r?'selected':''}>${r}</option>`).join('')}</select>`)+
+        fld('自定义 Prompt（可选，接入真实大模型时生效）',`<textarea data-cfg="prompt" placeholder="例如：请以大学物理助教口吻，点评本组数据的误差水平，并给出改进建议…">${esc(c.prompt)}</textarea>`)+
+        `<div class="hint"><span class="badge mock">演示模式</span> 当前由本地规则引擎生成结构化判读，字段含义与正式接入 LLM 后完全一致。</div>`;
+      break;
+    case 'qa':
+      h+=fld('AI 角色',`<select data-cfg="role">${['助教','批改老师','实验搭档'].map(r=>`<option ${c.role===r?'selected':''}>${r}</option>`).join('')}</select>`)+
+        fld('思考题',`<textarea data-cfg="question">${esc(c.question)}</textarea>`);
+      break;
+    case 'summary':
+      h+=fld('AI 角色',`<select data-cfg="role">${['助教','批改老师','实验搭档'].map(r=>`<option ${c.role===r?'selected':''}>${r}</option>`).join('')}</select>`);
+      break;
+    case 'fit':
+      h+=fld('x 数组变量'+dl,`<input type="text" data-cfg="x" list="dl_${n.id}" value="${esc(c.x)}">`)+
+        fld('y 数组变量'+dl,`<input type="text" data-cfg="y" list="dl_${n.id}" value="${esc(c.y)}">`)+
+        fld('精度',`<input type="number" data-cfg="precision" value="${c.precision}" min="0" max="8">`);
+      break;
+    case 'report':
+      h+=fld('报告标题',`<input type="text" data-cfg="title" value="${esc(c.title)}">`)+
+        fld('撰写人（可选）',`<input type="text" data-cfg="author" value="${esc(c.author)}">`);
+      break;
+    case 'csvout':
+      h+=fld('选择要导出的变量'+dl,`<input type="text" data-cfg="varName" list="dl_${n.id}" value="${esc(c.varName)}">`);
+      break;
+    case 'branch':
+      h+=fld('条件表达式（支持 > < >= <= ==）'+dl,`<input type="text" data-cfg="cond" list="dl_${n.id}" value="${esc(c.cond)}">`)+
+        fld('分支A 标签（条件为真）',`<input type="text" data-cfg="aLabel" value="${esc(c.aLabel)}">`)+
+        fld('分支B 标签（条件为假）',`<input type="text" data-cfg="bLabel" value="${esc(c.bLabel)}">`);
+      break;
+    case 'loop':
+      h+=fld('数组变量'+dl,`<input type="text" data-cfg="varName" list="dl_${n.id}" value="${esc(c.varName)}">`)+
+        fld('元素别名',`<input type="text" data-cfg="alias" value="${esc(c.alias)}">`)+
+        fld('逐元素公式'+dl,`<input type="text" data-cfg="expr" list="dl_${n.id}" value="${esc(c.expr)}">`)+
+        fld('精度',`<input type="number" data-cfg="precision" value="${c.precision}" min="0" max="8">`);
+      break;
+    case 'preview': case 'mindmap':
+      h+='<div class="hint">此节点无需配置，运行后自动汇总上游全部输出。</div>';
+      break;
+  }
+  return h;
+}
+function unitOpts(sel){ const all=Object.values(UNIT_GROUPS).flatMap(Object.keys);
+  return all.map(u=>`<option ${u===sel?'selected':''}>${u}</option>`).join(''); }
+function setPath(obj,path,val){
+  const parts=path.split('.'); let o=obj;
+  for(let i=0;i<parts.length-1;i++){ o=o[parts[i]]; }
+  o[parts[parts.length-1]]=val;
+}
+function bindInspector(n){
+  const box=$('#inspector');
+  box.querySelectorAll('[data-cfg]').forEach(el=>{
+    const path=el.dataset.cfg;
+    if(path==='__title'){ el.addEventListener('input',()=>{ n.title=el.value; const t=canvasEl.querySelector(`.node[data-id="${n.id}"] .t`); if(t) t.textContent=el.value; }); return; }
+    const evt=el.tagName==='SELECT'?'change':(el.type==='checkbox'?'change':'input');
+    el.addEventListener(evt,()=>{ setPath(n.config,path, el.type==='checkbox'?el.checked:(el.type==='number'?el.value:el.value)); });
+  });
+  /* 动态列表 */
+  const fl=box.querySelector('#fList');
+  if(fl&&(n.type==='manual'||n.type==='const')){
+    const key=n.type==='manual'?'fields':'items';
+    const draw=()=>{ fl.innerHTML=n.config[key].map((f,i)=>`
+      <div class="expr-item"><div class="row">
+        <input class="oname" data-i="${i}" data-f="name" value="${esc(f.name)}" placeholder="${n.type==='const'?'常量名如 F0':'变量名如 长度'}">
+        <input class="eexpr" data-i="${i}" data-f="value" value="${esc(f.value)}" placeholder="数值 / 逗号分隔数组">
+        <button class="del" data-i="${i}" title="删除">✕</button></div>
+        ${n.type==='const'&&f.note!==undefined?`<input class="eexpr" data-i="${i}" data-f="note" value="${esc(f.note)}" placeholder="备注（单位、含义）" style="width:100%">`:''}
+      </div>`).join('');
+      fl.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',()=>{ n.config[key][+inp.dataset.i][inp.dataset.f]=inp.value; }));
+      fl.querySelectorAll('.del').forEach(b=>b.addEventListener('click',()=>{ n.config[key].splice(+b.dataset.i,1); draw(); n.output=null; renderCanvas(); renderInspector(); }));
+    };
+    draw();
+    box.querySelector('#addField').onclick=()=>{ n.config[key].push(n.type==='manual'?{name:'',value:''}:{name:'',value:'',note:''}); draw(); };
+  }
+  const el=box.querySelector('#fList');
+  if(el&&n.type==='formula'){
+    const draw=()=>{ el.innerHTML=n.config.exprs.map((f,i)=>`
+      <div class="expr-item"><div class="row">
+        <input class="oname" data-i="${i}" data-f="out" value="${esc(f.out)}" placeholder="输出名">
+        <span style="color:var(--muted)">=</span>
+        <input class="eexpr" data-i="${i}" data-f="expr" value="${esc(f.expr)}" placeholder="表达式，如 f1*f2/(f1+f2-d)">
+        <button class="del" data-i="${i}">✕</button></div></div>`).join('');
+      el.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',()=>{ n.config.exprs[+inp.dataset.i][inp.dataset.f]=inp.value; }));
+      el.querySelectorAll('.del').forEach(b=>b.addEventListener('click',()=>{ n.config.exprs.splice(+b.dataset.i,1); draw(); n.output=null; renderCanvas(); renderInspector(); }));
+    };
+    draw();
+    box.querySelector('#addExpr').onclick=()=>{ n.config.exprs.push({out:'',expr:''}); draw(); };
+  }
+  box.querySelector('#btnRunOne')?.addEventListener('click',()=>runSingle(n.id));
+  box.querySelector('#btnCopyOut')?.addEventListener('click',()=>{
+    if(!n.output||n.output.error) return toast('请先运行节点');
+    navigator.clipboard.writeText(JSON.stringify(n.output.json,null,2)).then(()=>toast('输出 JSON 已复制')).catch(()=>toast('复制失败'));
+  });
+  box.querySelector('#btnDlMd')?.addEventListener('click',()=>{
+    if(!n.output||!n.output.json||!n.output.json.markdown) return toast('请先运行节点');
+    const blob=new Blob([n.output.json.markdown],{type:'text/markdown'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(n.config.title||'实验报告')+'.md'; a.click();
+  });
+}
+
+/* ---------- 执行引擎 ---------- */
+function topoOrder(){
+  const list=nodes.filter(n=>n.enabled), inDeg={};
+  list.forEach(n=>inDeg[n.id]=0);
+  edges.forEach(e=>{ if(inDeg[e.to]!==undefined&&inDeg[e.from]!==undefined) inDeg[e.to]++; });
+  const q=list.filter(n=>!inDeg[n.id]).map(n=>n.id), order=[];
+  while(q.length){ const id=q.shift(); order.push(id);
+    for(const e of edges) if(e.from===id&&inDeg[e.to]!==undefined){ if(--inDeg[e.to]===0) q.push(e.to); } }
+  if(order.length!==list.length) throw new Error('存在环路或悬空连线，请检查流程');
+  return order;
+}
+async function runPipeline(animate){
+  $('#stRun').textContent='运行中…'; $('#stRun').parentElement.className='st';
+  nodes.forEach(n=>{ if(n.enabled&&!n.output) n.output=null; });
+  let order;
+  try{ order=topoOrder(); }catch(err){ toast('⛔ '+err.message); $('#stRun').textContent='流程有误'; $('#stRun').parentElement.className='st err'; return; }
+  for(const n of nodes) if(!n.enabled){ n.output=null; }
+  renderCanvas();
+  for(const id of order){
+    const n=nodeById(id);
+    if(animate){ n.output={status:'run'}; refreshNodeCard(n); await sleep(140); }
+    try{ const out=DEFS[n.type].run(n.config, upstreamVars(id), n);
+      n.output={status:'ok', json:out};
+    }catch(err){ n.output={status:'err', error:err.message}; }
+    refreshNodeCard(n);
+  }
+  const errs=nodes.filter(n=>n.enabled&&n.output&&n.output.status==='err').length;
+  if(errs){ $('#stRun').textContent=`完成，${errs} 个节点报错`; $('#stRun').parentElement.className='st err'; }
+  else { $('#stRun').textContent='✓ 运行完成'; $('#stRun').parentElement.className='st ok'; toast('流水线运行完成'); }
+  renderCanvas(); if(selNode) renderInspector();
+}
+function runSingle(id){
+  const n=nodeById(id); if(!n) return;
+  if(!n.enabled) return toast('节点已停用，请先启用');
+  let order; try{ order=topoOrder(); }catch(err){ return toast('⛔ '+err.message); }
+  const upto=order.slice(0, order.indexOf(id)+1);
+  for(const nid of upto){ const m=nodeById(nid);
+    try{ m.output={status:'ok', json:DEFS[m.type].run(m.config, upstreamVars(nid), m)}; }
+    catch(err){ m.output={status:'err', error:err.message}; if(nid===id) toast('⛔ '+err.message); } }
+  renderCanvas(); if(selNode===id) renderInspector();
+  if(n.output&&n.output.status==='ok') toast('✓ 节点调试通过');
+}
+function refreshNodeCard(n){
+  const card=canvasEl.querySelector(`.node[data-id="${n.id}"]`);
+  if(!card) return;
+  const fresh=nodeEl(n); fresh.classList.add('sel', ...[...card.classList].filter(c=>c.startsWith('st-')));
+  card.replaceWith(fresh);
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ---------- 模板 ---------- */
+const LENS_TPL={name:'🎬 薄透镜组（演示模板）', nodes:[
+  {id:'in1', type:'manual', title:'透镜参数输入', x:70, y:90, enabled:true, config:{fields:[{name:'f1',value:'10.98'},{name:'f2',value:'15.90'},{name:'d',value:'4.12'}]}},
+  {id:'c1', type:'const', title:'标准值预设', x:70, y:330, enabled:true, config:{items:[{name:'F0', value:'7.60', note:'透镜组焦距标准值/cm'}]}},
+  {id:'f1', type:'formula', title:'透镜组公式', x:400, y:110, enabled:true, config:{precision:2, exprs:[
+    {out:'F',  expr:'f1*f2/(f1+f2-d)'},
+    {out:'主点lH', expr:'F*d/f2'},
+    {out:'主点lH2', expr:'-F*d/f1'}]}},
+  {id:'e1', type:'error', title:'相对误差计算', x:400, y:360, enabled:true, config:{meas:'F', truth:'F0', ua:'', dg:'', precision:2}},
+  {id:'j1', type:'judge', title:'AI 误差判读', x:740, y:110, enabled:true, config:{role:'助教', prompt:''}},
+  {id:'r1', type:'report', title:'实验报告输出', x:740, y:400, enabled:true, config:{title:'薄透镜组焦距测定实验报告', author:'第3组'}},
+], edges:[{from:'in1',to:'f1'},{from:'in1',to:'e1'},{from:'f1',to:'e1'},{from:'c1',to:'e1'},{from:'e1',to:'j1'},{from:'e1',to:'r1'},{from:'j1',to:'r1'}]};
+const PEND_TPL={name:'🕰️ 单摆测重力加速度', nodes:[
+  {id:'in1', type:'manual', title:'摆长与周期数据', x:70, y:90, enabled:true, config:{fields:[
+    {name:'L', value:'1.000'}, {name:'T测量', value:'2.006,2.008,2.003,2.009,2.005'}]}},
+  {id:'s1', type:'stats', title:'周期统计', x:70, y:300, enabled:true, config:{varName:'T测量', precision:4}},
+  {id:'c1', type:'const', title:'本地重力真值', x:70, y:520, enabled:true, config:{items:[{name:'g0', value:'9.794', note:'杭州地区参考值 m/s²'}]}},
+  {id:'f1', type:'formula', title:'g 计算公式', x:420, y:120, enabled:true, config:{precision:2, exprs:[{out:'g', expr:'4*pi^2*L/(mean(T测量))^2'}]}},
+  {id:'e1', type:'error', title:'误差计算', x:420, y:360, enabled:true, config:{meas:'g', truth:'g0', ua:'A类不确定度', dg:'0.001', precision:2}},
+  {id:'j1', type:'judge', title:'AI 数据判读', x:770, y:120, enabled:true, config:{role:'批改老师', prompt:''}},
+  {id:'r1', type:'report', title:'实验报告', x:770, y:360, enabled:true, config:{title:'单摆测重力加速度实验报告', author:'第5组'}},
+], edges:[{from:'in1',to:'s1'},{from:'in1',to:'f1'},{from:'s1',to:'f1'},{from:'s1',to:'e1'},{from:'c1',to:'e1'},{from:'f1',to:'e1'},{from:'e1',to:'j1'},{from:'e1',to:'r1'},{from:'j1',to:'r1'}]};
+const BUILTIN_TPLS=[LENS_TPL, PEND_TPL];
+function savedTpls(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||'[]'); }catch(e){ return []; } }
+function loadTemplate(tpl, silent){
+  nodes=JSON.parse(JSON.stringify(tpl.nodes)).map(n=>({...n, output:null}));
+  edges=JSON.parse(JSON.stringify(tpl.edges));
+  selNode=null; selEdge=null; counter={};
+  $('#stTpl').textContent=tpl.name;
+  renderCanvas(); renderInspector();
+  wrapEl.scrollTo(0,0);
+  if(!silent) toast('已打开模板：'+tpl.name);
+  runPipeline(!silent);
+}
+function refreshTplSelect(){
+  const sel=$('#tplSelect'); const saved=savedTpls();
+  sel.innerHTML='<option value="">—— 模板库 ——</option>'+
+    BUILTIN_TPLS.map((t,i)=>`<option value="b${i}">${t.name}</option>`).join('')+
+    saved.map((t,i)=>`<option value="s${i}">⭐ ${esc(t.name)}</option>`).join('');
+}
+function saveTemplate(){
+  if(!nodes.length) return toast('画布为空');
+  const name=prompt('模板名称：', $('#stTpl').textContent==='空白画布'?'我的实验模板':$('#stTpl').textContent.replace(/^⭐\s*/,''));
+  if(!name) return;
+  const list=savedTpls();
+  list.push({name, nodes:JSON.parse(JSON.stringify(nodes)).map(n=>{ const o={...n}; delete o.output; return o; }), edges:JSON.parse(JSON.stringify(edges)), savedAt:Date.now()});
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(list)); }catch(e){ return toast('保存失败：存储空间不足'); }
+  refreshTplSelect(); toast('模板已保存：'+name);
+}
+
+/* ---------- 全局交互 ---------- */
+wrapEl.addEventListener('dragover',e=>e.preventDefault());
+wrapEl.addEventListener('drop',e=>{
+  e.preventDefault();
+  const type=e.dataTransfer.getData('text/plain'); if(!DEFS[type]) return;
+  const r=canvasEl.getBoundingClientRect();
+  addNode(type, e.clientX-r.left-100, e.clientY-r.top-20);
+});
+canvasEl.addEventListener('click',e=>{
+  if(e.target===canvasEl||e.target.id==='wires'||e.target.closest('#emptyHint')){ selNode=null; selEdge=null;
+    canvasEl.querySelectorAll('.node.sel').forEach(el=>el.classList.remove('sel')); drawWires(); renderInspector(); }
+});
+wiresEl.addEventListener('dblclick',e=>{
+  const w=e.target.closest('.wire-hit'); if(!w) return;
+  const [f,t]=w.dataset.e.split('|'); edges=edges.filter(x=>!(x.from===f&&x.to===t)); drawWires(); toast('已删除连线');
+});
+document.addEventListener('keydown',e=>{
+  if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if(e.key==='Delete'||e.key==='Backspace'){
+    if(selEdge){ const [f,t]=selEdge.split('|'); edges=edges.filter(x=>!(x.from===f&&x.to===t)); selEdge=null; drawWires(); renderInspector(); }
+    else if(selNode){ removeNode(selNode); }
+  }
+  if(e.key==='Escape'){ selNode=null; selEdge=null; drawWires(); renderInspector(); }
+});
+$('#btnRun').addEventListener('click',()=>runPipeline(true));
+$('#btnRunSel').addEventListener('click',()=>{ if(!selNode) return toast('请先选中一个节点'); runSingle(selNode); });
+$('#btnSaveTpl').addEventListener('click',saveTemplate);
+$('#btnClear').addEventListener('click',()=>{ if(!nodes.length||confirm('确定清空画布？')){ nodes=[]; edges=[]; selNode=null; $('#stTpl').textContent='空白画布'; renderCanvas(); renderInspector(); } });
+$('#btnLoadTpl').addEventListener('click',()=>{
+  const v=$('#tplSelect').value; if(!v) return toast('请先在右侧下拉框选择模板');
+  const tpl=v[0]==='b'?BUILTIN_TPLS[+v.slice(1)]:savedTpls()[+v.slice(1)];
+  if(tpl) loadTemplate(tpl);
+});
+
+/* ---------- 启动 ---------- */
+renderPalette(); refreshTplSelect(); loadTemplate(LENS_TPL, true);
+</script>
+</body>
+</html>
